@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <direct.h>
 #include <string.h>
 #include <time.h>
 #define MAX_SIZE 50001
@@ -95,8 +96,8 @@ void delete_process(Process* p) {
 void info_process(Process* p) {
     printf("-----------------------\nProcess %d Info\n", p->process_id);
     printf("Process_ID: %d   Arrival_Time: %d   Priority: %d\n", p->process_id, p->arrival_time, p->priority);
-    printf("CPU_Burst_Time: %d   I/O_Occurance_Rate_per_Tick: %d%%", p->cpu_burst_time, p->io_rate);
-    printf("-----------------------\n");
+    printf("CPU_Burst_Time: %d   I/O_Occurance_Rate_per_Tick: %d%%\n", p->cpu_burst_time, p->io_rate);
+    //printf("-----------------------\n");
 }
 void result_process(Process* p) {
     printf("-----------------------\nProcess %d Result\n", p->process_id);
@@ -106,13 +107,12 @@ void result_process(Process* p) {
     printf("I/O_called: %d   Total_I/O_Burst_Time: %d\n", p->io_num, p->io_process_time);
     printf("-----------------------\n");
 }
-void result_processf(FILE* f,Process* p) {
-    fprintf(f,"-----------------------\nProcess %d Result\n", p->process_id);
-    fprintf(f,"Process_ID: %d   Arrival_Time: %d   Finished_Time: %d   Priority: %d\n", p->process_id, p->arrival_time, p->finished_time, p->priority);
+void result_processf(FILE* fp,Process* p) {
+    fprintf(fp,"-----------------------\nProcess %d Result\n", p->process_id);
+    fprintf(fp,"Process_ID: %d   Arrival_Time: %d   Finished_Time: %d   Priority: %d\n", p->process_id, p->arrival_time, p->finished_time, p->priority);
     int ta=p->finished_time-p->arrival_time;
-    fprintf(f,"Waiting_Time: %d   CPU_Burst_Time: %d   Turnaround_Time: %d\n", ta-p->cpu_burst_time-p->io_process_time, p->cpu_burst_time, ta);
-    fprintf(f,"I/O_called: %d   Total_I/O_Burst_Time: %d\n", p->io_num, p->io_process_time);
-    fprintf(f,"-----------------------\n");
+    fprintf(fp,"Waiting_Time: %d   CPU_Burst_Time: %d   Turnaround_Time: %d\n", ta-p->cpu_burst_time-p->io_process_time, p->cpu_burst_time, ta);
+    fprintf(fp,"I/O_called: %d   Total_I/O_Burst_Time: %d\n", p->io_num, p->io_process_time);
 }
 
 
@@ -123,9 +123,10 @@ typedef struct ProcessSet {
 } ProcessSet;
 
 ProcessSet* processsets[10] = {NULL};
-int processsets_data[10][10][10] = {0,}; // 알고리즘 실행결과 저장 [ps_num][알고리즘 코드(예: 1=fcfs)][저장할 데이터종류]
+int processsets_data[10][10][3] = {0,}; // 알고리즘 실행결과 저장 [ps_num(0~9)][알고리즘 코드(예: 1=fcfs)][저장할 데이터종류]
 // 3번 인덱스가 0일때는 데이터 존재여부 확인, 0이면 없음, 1이면 유효한 데이터
-// 1: waiting time 2: turnaround time
+// 1: finished time 0: waiting time 1: turnaround time
+double processsets_datad[10][10][3] = {0,};
 
 void destroy_processset(ProcessSet *ps) {
     if(ps == NULL) return;
@@ -200,7 +201,6 @@ void create_processset(int ps_id) {
         }
     }
     if(mode == 'R') {
-        srand(time(NULL));
         for(int i=0;i<process_n;++i) {
             int rv[5];
             rv[0]=rand()%10;
@@ -213,10 +213,26 @@ void create_processset(int ps_id) {
     }
     
     processsets[ps_id-1] = ps;
+    for(int i=0;i<10;i++) {
+        processsets_data[ps_id-1][i][0]=0;
+    }
     printf("Process Set saved at #%d\n",ps_id);
 }
-void info_processset(ProcessSet* ps) {
-    //TODO
+void info_processset(int ps_id) {
+    if(processsets[ps_id-1] == NULL) {
+        printf("ProcessSet #%d not found.\n", ps_id);
+        return;
+    }
+    else {
+        ProcessSet* ps=processsets[ps_id-1];
+        int processn = ps->num;
+
+        printf("\nProcessSet #%d Info\n\n",ps_id);
+        for(int i=0;i<processn;i++) {
+            info_process(ps->p[i]);
+        }
+        printf("-----------------------\n");
+    }
 }
 
 
@@ -295,23 +311,21 @@ void pq_insert(PriorityQueue* pq, Process* process) {
 static void heapify_down(PriorityQueue* pq, int i) {
     int left = (i<<1)+1;
     int right = (i<<1)+2;
-    int p = i;
+    int p=i;
 
-    if (left < pq->current_size &&
-        compare_process(pq->heap[left], pq->heap[p], pq->mode)) {
+    if (left<pq->current_size && compare_process(pq->heap[left], pq->heap[p], pq->mode)) {
         p = left;
     }
-    if (right < pq->current_size &&
-        compare_process(pq->heap[right], pq->heap[p], pq->mode)) {
+    if (right<pq->current_size && compare_process(pq->heap[right], pq->heap[p], pq->mode)) {
         p = right;
     }
-    if (p != i) {
+    if (p^i) {
         swap_process(&pq->heap[i], &pq->heap[p]);
         heapify_down(pq, p);
     }
 }
 Process* pq_extract_min(PriorityQueue* pq) {
-    if (pq == NULL || pq->current_size<1) {
+    if (pq==NULL || pq->current_size<1) {
         return NULL; // null 받을경우 다음 우선순위큐 체크하도록 하기
     }
     Process* mn = pq->heap[0];
@@ -373,6 +387,7 @@ FILE* create_file() {
 
     printf("Gantt chart will be saved as txt file.\nInput file name: ");
     if (get_line(input_buf) != NULL) {
+        input_buf[strcspn(input_buf, "\n")] = '\0';
         if (input_buf[0]=='\0') {
             if (ts == NULL) {
                 strcpy(filename, "gantt_chart.txt"); 
@@ -392,7 +407,9 @@ FILE* create_file() {
         perror("Failed to open file\n");
         return NULL;
     }
-    printf("File will be saved as %s\n", filename);
+    char cwd[1024];
+    _getcwd(cwd, sizeof(cwd));
+    printf("File is saved at: %s\\%s\n", cwd, filename);
     return fp;
 }
 
@@ -452,8 +469,30 @@ void fprint_result(FILE* fp, ProcessSet* ps, double wt, double tt) {
     for(int i=0;i<processn;i++) {
         result_processf(fp, ps->p[i]);
     }
-    fprintf(fp, "\nAverage Waiting Time: %.3f\n",wt);
+    fprintf(fp,"-----------------------\n");
+    fprintf(fp, "\nAverage Waiting Time: %.3f",wt);
     fprintf(fp, "\nAverage Turnaround Time: %.3f\n",tt);
+}
+
+void finish(FILE* file, ProcessSet* ps, int ps_n, int algo) {
+    int processn = ps->num;
+    double wt=0;
+    double tt=0;
+
+    for(int i=0;i<processn;i++) {
+        int ta=(ps->p[i]->finished_time)-(ps->p[i]->arrival_time);
+        wt+=ta-(ps->p[i]->cpu_burst_time)-(ps->p[i]->io_process_time);
+        tt+=ta;
+    }
+
+    wt/=(double)processn; tt/=(double)processn;
+    fprint_result(file, ps, wt, tt);
+    printf("\nAverage Waiting Time: %.3f\n",wt);
+    printf("Average Turnaround Time: %.3f\n\n",tt);
+
+    processsets_datad[ps_n][algo][0] = wt;
+    processsets_datad[ps_n][algo][1] = tt;
+    fclose(file);
 }
 
 void fcfs(int ps_n) {
@@ -465,7 +504,7 @@ void fcfs(int ps_n) {
     Process* processing = NULL;
     PriorityQueue* wq=pq_create(1);
     char s_gantt[2][130] = {"0", "|"};
-    for (int i=0;i<129;i++) s_gantt[0][i] = s_gantt[1][i] = ' ';
+    for (int i=1;i<129;i++) s_gantt[0][i] = s_gantt[1][i] = ' ';
     s_gantt[0][129] = s_gantt[1][129] = '\0';
     int w=1;
     int latest = reset(ps_n);
@@ -477,10 +516,14 @@ void fcfs(int ps_n) {
     for(int i=0;i<processn;i++) {
         if(0==ps->p[i]->arrival_time) {
             enqueue(q,ps->p[i]);
-            if(processing == NULL) processing=ps->p[i];
+            if(processing == NULL) {
+                processing=ps->p[i];
+                fprintf(file, "Time 0: Process #%d started processing\n", processing->process_id);
+            }
         }
     }
-    processing->remaining_time--;
+    if(processing != NULL) processing->remaining_time--;
+    else fprintf(file, "Time 0: IDLE\n");
 
     while(tick<=latest || q->l!=q->r || wq->current_size>0) { // process
         while(wq->current_size>0 && pq_peekmin(wq)->io_finish_time <= tick) enqueue(q, pq_extract_min(wq)); // check waiting queue
@@ -494,6 +537,7 @@ void fcfs(int ps_n) {
                 processing=queue_front(q);
                 processing->remaining_time--;
                 write_s_gantt(file, s_gantt, tick, 0, &w);
+                fprintf(file, "Time %d: Process #%d started processing\n", tick, processing->process_id);
             }
         }
 
@@ -501,13 +545,18 @@ void fcfs(int ps_n) {
             if(processing->remaining_time < 1) { // process end
                 processing->finished_time = tick;
                 write_s_gantt(file, s_gantt, tick, processing->process_id, &w);
+                fprintf(file, "Time %d: Process #%d finished processing\n", tick, processing->process_id);
                 dequeue(q);
 
                 if(q->l!=q->r) { // queue not empty -> start new process
                     processing=queue_front(q);
                     processing->remaining_time--;
+                    fprintf(file, "Time %d: Process #%d started processing\n", tick, processing->process_id);
                 }
-                else processing=NULL;
+                else {
+                    processing=NULL;
+                    fprintf(file, "Time %d: Ready queue empty, IDLE\n", tick);
+                }
             }
 
             else { // still processing, I/O can be called
@@ -517,30 +566,146 @@ void fcfs(int ps_n) {
                     processing->io_finish_time = tick+processing->io_time;
                     pq_insert(wq,processing);
                     write_s_gantt(file, s_gantt, tick, processing->process_id, &w);
+                    fprintf(file, "Time %d: Process #%d was interrupted by I/O while processing\n", tick, processing->process_id);
                     dequeue(q);
+
+                    if(q->l!=q->r) { // queue not empty -> start new process
+                        processing=queue_front(q);
+                        processing->remaining_time--;
+                        fprintf(file, "Time %d: Process #%d started processing\n", tick, processing->process_id);
+                    }
+                    else {
+                        processing=NULL;
+                        fprintf(file, "Time %d: Ready queue empty, IDLE\n", tick);
+                    }
                 }
                 else processing->remaining_time--;
             }
         }
         tick++;
     }
-    printf("Simulation Completed!\nGantt Chart:\n%s\n%s\n",s_gantt[0],s_gantt[1]);
-    double wt=0;
-    double tt=0;
 
+    fprintf(file, "\n");
+    printf("Simulation Completed! Finished time: %d\n\nGantt Chart:\n%s\n%s\n",tick-1,s_gantt[0],s_gantt[1]);
+    processsets_data[ps_n][1][0] = 1;
+    processsets_data[ps_n][1][1] = tick-1;
+    finish(file, ps, ps_n, 1);
+
+    destroy_queue(q);
+    pq_destroy(wq);
+}
+
+void sjf(int ps_n, int ispreem) {
+    FILE* file = create_file();
+    int tick=1;
+    ProcessSet* ps=processsets[ps_n];
+    int processn=ps->num;
+    Process* processing = NULL;
+    PriorityQueue* q=pq_create(2);
+    PriorityQueue* wq=pq_create(1);
+    char s_gantt[2][130] = {"0", "|"};
+    for (int i=1;i<129;i++) s_gantt[0][i] = s_gantt[1][i] = ' ';
+    s_gantt[0][129] = s_gantt[1][129] = '\0';
+    int w=1;
+    int latest = reset(ps_n);
+
+    if(ispreem) fprintf(file,"ProcessSet #%d\nAlgorithm: Preemptive SJF\n\nGantt Chart:\n",ps_n+1);
+    else fprintf(file,"ProcessSet #%d\nAlgorithm: Non-Preemptive SJF\n\nGantt Chart:\n",ps_n+1);
+
+    printf("Processing...\n");
     for(int i=0;i<processn;i++) {
-        int ta=(ps->p[i]->finished_time)-(ps->p[i]->arrival_time);
-        wt+=ta-(ps->p[i]->cpu_burst_time)-(ps->p[i]->io_process_time);
-        tt+=ta;
+        if(0==ps->p[i]->arrival_time) {
+            pq_insert(q,ps->p[i]);
+        }
+    }
+    if(pq_peekmin(q)!=NULL) {
+        processing=pq_extract_min(q);
+        processing->remaining_time--;
+        fprintf(file, "Time 0: Process #%d started processing\n", processing->process_id);
+        write_s_gantt(file, s_gantt, 0, processing->process_id, &w);
+    }
+    else fprintf(file, "Time 0: IDLE\n");
+    
+
+    while(tick<=latest || processing != NULL || q->current_size>0 || wq->current_size>0) { // process
+        while(wq->current_size>0 && pq_peekmin(wq)->io_finish_time <= tick) pq_insert(q, pq_extract_min(wq)); // check waiting queue
+
+        for(int i=0;i<processn;i++) { // enqueue first arrived process
+            if(tick==ps->p[i]->arrival_time) pq_insert(q,ps->p[i]);
+        }
+
+        if(processing == NULL) { // was not processing
+            if(pq_peekmin(q)!=NULL) { // queue not empty -> start new process
+                processing=pq_extract_min(q);
+                processing->remaining_time--;
+                write_s_gantt(file, s_gantt, tick, 0, &w);
+                fprintf(file, "Time %d: Process #%d started processing\n", tick, processing->process_id);
+            }
+        }
+
+        else { // was processing
+            if(processing->remaining_time < 1) { // process end
+                processing->finished_time = tick;
+                write_s_gantt(file, s_gantt, tick, processing->process_id, &w);
+                fprintf(file, "Time %d: Process #%d finished processing\n", tick, processing->process_id);
+                //extract 하면 안됨 (이미 빠진 상태)
+
+                if(pq_peekmin(q)!=NULL) { // queue not empty -> start new process
+                    processing=pq_extract_min(q);
+                    processing->remaining_time--;
+                    fprintf(file, "Time %d: Process #%d started processing\n", tick, processing->process_id);
+                }
+                else {
+                    processing=NULL;
+                    fprintf(file, "Time %d: Ready queue empty, IDLE\n", tick);
+                }
+            }
+
+            else { // still processing, I/O can be called
+                if(rand()%100 < processing->io_rate) { // I/O interrupt called
+                    processing->io_num++;
+                    processing->io_process_time += processing->io_time;
+                    processing->io_finish_time = tick+processing->io_time;
+                    write_s_gantt(file, s_gantt, tick, processing->process_id, &w);
+                    fprintf(file, "Time %d: Process #%d was interrupted by I/O while processing\n", tick, processing->process_id);
+                    pq_insert(wq,processing);
+                    processing = NULL;
+                    
+                    if(pq_peekmin(q) != NULL) { // queue not empty -> start new process
+                        processing=pq_extract_min(q);
+                        processing->remaining_time--;
+                        fprintf(file, "Time %d: Process #%d started processing\n", tick, processing->process_id);
+                    }
+                    else {
+                        processing=NULL;
+                        fprintf(file, "Time %d: Ready queue empty, IDLE\n", tick);
+                    }
+                }
+                else if (ispreem && pq_peekmin(q) != NULL && pq_peekmin(q)->remaining_time < processing->remaining_time) { // 선점당함함
+                    pq_insert(q, processing);
+                    write_s_gantt(file, s_gantt, tick, processing->process_id, &w);
+                    fprintf(file, "Time %d: Process #%d was preempted by Process #%d\n", tick, processing->process_id, pq_peekmin(q)->process_id);
+
+                    processing=pq_extract_min(q);
+                    fprintf(file, "Time %d: Process #%d started processing\n", tick, processing->process_id);
+                    processing->remaining_time--;
+                }
+                else processing->remaining_time--;
+            }
+        }
+        tick++;
     }
 
-    wt/=(double)processn;
-    tt/=(double)processn;
-    fprint_result(file, ps, wt, tt);
-    printf("\nAverage Waiting Time: %.3f\n",wt);
-    printf("Average Turnaround Time: %.3f\n\n",tt);
-    fclose(file);
+    fprintf(file, "\n");
+    printf("Simulation Completed! Finished time: %d\n\nGantt Chart:\n%s\n%s\n",tick-1,s_gantt[0],s_gantt[1]);
+    processsets_data[ps_n][2+ispreem][0] = 1;
+    processsets_data[ps_n][2+ispreem][1] = tick-1;
+    finish(file, ps, ps_n, 2+ispreem);
+
+    pq_destroy(q);
+    pq_destroy(wq);
 }
+
 
 
 int manage_process_set() { // 프로세스셋 관리모드 
@@ -579,7 +744,7 @@ int manage_process_set() { // 프로세스셋 관리모드
     }
 
     if(action == 1) {
-        info_processset(processsets[selected-1]); // 실제 주소는 0~9
+        info_processset(selected); // 실제 주소는 0~9
     }
     else if(action == 2) {
         create_processset(selected); // 내부에서 처리 
@@ -629,11 +794,18 @@ int run_algo() { // 알고리즘 실행기
     if(action == 1) {
         fcfs(selected-1);
     }
+    else if(action == 2) {
+        sjf(selected-1, 0);
+    }
+    else if(action == 3) {
+        sjf(selected-1, 1);
+    }
     return 1;
 }
 
 
 int main() {
+    srand(time(NULL));
     printf("** ************************************************ **\n");
     printf("** *********** CPU Scheduling Simulator *********** **\n");
     printf("**                                                  **\n");
