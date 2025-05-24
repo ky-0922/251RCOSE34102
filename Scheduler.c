@@ -138,7 +138,7 @@ void create_processset(int ps_id) {
     int scanned=0;
     int process_info[8];
 
-    printf("** Creating Process Set **\nSelect Mode:\nM: Manual R: Random\n");
+    printf("\n** Creating Process Set **\nSelect Mode:\nM: Manual R: Random\n");
     char input_buf[256];
     char mode = 'A';
     while (mode!='M' && mode!='R') {
@@ -158,12 +158,12 @@ void create_processset(int ps_id) {
         ps->p[i] = NULL;
     }
 
-    printf("Input number of processes:");
+    printf("Input number of processes: ");
     while(!scanned) {
         get_line(input_buf);
         scanned = sscanf(input_buf, "%d", &process_n);
         if(process_n>MAX_SIZE-1 || process_n<1 || scanned!=1) {
-            printf("Invalid input. Number of processes should be value of 1~50000.\n");
+            printf("Invalid input. Number of processes should be value of 1~50000.\nInput number of processes: ");
             scanned=0;
             continue;
         }
@@ -291,6 +291,24 @@ static int compare_process(Process* p1, Process* p2, int mode) { // 1 = p1이 �
         }
         return 0;
     }
+    else if (mode==3) { // Priority Queue
+        if (p1->priority < p2->priority) {
+            return 1;
+        }
+        if (p1->priority > p2->priority) {
+            return 0; 
+        }
+        if (p1->arrival_time < p2->arrival_time) {
+            return 1;
+        }
+        if (p1->arrival_time > p2->arrival_time) {
+            return 0; 
+        }
+        if (p1->process_id < p2->process_id) { // Tiebreaker
+            return 1;
+        }
+        return 0;
+    }
     return 0;
 }
 static void heapify_up(PriorityQueue* pq, int i) {
@@ -385,7 +403,7 @@ FILE* create_file() {
     time(&now);
     ts = localtime(&now);
 
-    printf("Gantt chart will be saved as txt file.\nInput file name: ");
+    printf("\nGantt chart will be saved as txt file.\nInput file name: ");
     if (get_line(input_buf) != NULL) {
         input_buf[strcspn(input_buf, "\n")] = '\0';
         if (input_buf[0]=='\0') {
@@ -511,7 +529,7 @@ void fcfs(int ps_n) {
 
     fprintf(file,"ProcessSet #%d\nAlgorithm: FCFS\n\nGantt Chart:\n",ps_n+1);
 
-    printf("Processing...\n");
+    printf("\nProcessing...\n");
     tick=1;
     for(int i=0;i<processn;i++) {
         if(0==ps->p[i]->arrival_time) {
@@ -612,7 +630,7 @@ void sjf(int ps_n, int ispreem) {
     if(ispreem) fprintf(file,"ProcessSet #%d\nAlgorithm: Preemptive SJF\n\nGantt Chart:\n",ps_n+1);
     else fprintf(file,"ProcessSet #%d\nAlgorithm: Non-Preemptive SJF\n\nGantt Chart:\n",ps_n+1);
 
-    printf("Processing...\n");
+    printf("\nProcessing...\n");
     for(int i=0;i<processn;i++) {
         if(0==ps->p[i]->arrival_time) {
             pq_insert(q,ps->p[i]);
@@ -706,6 +724,256 @@ void sjf(int ps_n, int ispreem) {
     pq_destroy(wq);
 }
 
+void priority(int ps_n, int ispreem) {
+    FILE* file = create_file();
+    int tick=1;
+    ProcessSet* ps=processsets[ps_n];
+    int processn=ps->num;
+    Process* processing = NULL;
+    PriorityQueue* q=pq_create(3); // 새로 기준만들기 
+    PriorityQueue* wq=pq_create(1);
+    char s_gantt[2][130] = {"0", "|"};
+    for (int i=1;i<129;i++) s_gantt[0][i] = s_gantt[1][i] = ' ';
+    s_gantt[0][129] = s_gantt[1][129] = '\0';
+    int w=1;
+    int latest = reset(ps_n);
+
+    if(ispreem) fprintf(file,"ProcessSet #%d\nAlgorithm: Preemptive Priority\n\nGantt Chart:\n",ps_n+1);
+    else fprintf(file,"ProcessSet #%d\nAlgorithm: Non-Preemptive Priority\n\nGantt Chart:\n",ps_n+1);
+
+    printf("\nProcessing...\n");
+    for(int i=0;i<processn;i++) {
+        if(0==ps->p[i]->arrival_time) {
+            pq_insert(q,ps->p[i]);
+        }
+    }
+    if(pq_peekmin(q)!=NULL) {
+        processing=pq_extract_min(q);
+        processing->remaining_time--;
+        fprintf(file, "Time 0: Process #%d started processing\n", processing->process_id);
+        write_s_gantt(file, s_gantt, 0, processing->process_id, &w);
+    }
+    else fprintf(file, "Time 0: IDLE\n");
+    
+
+    while(tick<=latest || processing != NULL || q->current_size>0 || wq->current_size>0) { // process
+        while(wq->current_size>0 && pq_peekmin(wq)->io_finish_time <= tick) pq_insert(q, pq_extract_min(wq)); // check waiting queue
+
+        for(int i=0;i<processn;i++) { // enqueue first arrived process
+            if(tick==ps->p[i]->arrival_time) pq_insert(q,ps->p[i]);
+        }
+
+        if(processing == NULL) { // was not processing
+            if(pq_peekmin(q)!=NULL) { // queue not empty -> start new process
+                processing=pq_extract_min(q);
+                processing->remaining_time--;
+                write_s_gantt(file, s_gantt, tick, 0, &w);
+                fprintf(file, "Time %d: Process #%d started processing\n", tick, processing->process_id);
+            }
+        }
+
+        else { // was processing
+            if(processing->remaining_time < 1) { // process end
+                processing->finished_time = tick;
+                write_s_gantt(file, s_gantt, tick, processing->process_id, &w);
+                fprintf(file, "Time %d: Process #%d finished processing\n", tick, processing->process_id);
+
+                if(pq_peekmin(q)!=NULL) { // queue not empty -> start new process
+                    processing=pq_extract_min(q);
+                    processing->remaining_time--;
+                    fprintf(file, "Time %d: Process #%d started processing\n", tick, processing->process_id);
+                }
+                else {
+                    processing=NULL;
+                    fprintf(file, "Time %d: Ready queue empty, IDLE\n", tick);
+                }
+            }
+
+            else { // still processing, I/O can be called
+                if(rand()%100 < processing->io_rate) { // I/O interrupt called
+                    processing->io_num++;
+                    processing->io_process_time += processing->io_time;
+                    processing->io_finish_time = tick+processing->io_time;
+                    write_s_gantt(file, s_gantt, tick, processing->process_id, &w);
+                    fprintf(file, "Time %d: Process #%d was interrupted by I/O while processing\n", tick, processing->process_id);
+                    pq_insert(wq,processing);
+                    processing = NULL;
+                    
+                    if(pq_peekmin(q) != NULL) { // queue not empty -> start new process
+                        processing=pq_extract_min(q);
+                        processing->remaining_time--;
+                        fprintf(file, "Time %d: Process #%d started processing\n", tick, processing->process_id);
+                    }
+                    else {
+                        processing=NULL;
+                        fprintf(file, "Time %d: Ready queue empty, IDLE\n", tick);
+                    }
+                }
+                else if (ispreem && pq_peekmin(q) != NULL && pq_peekmin(q)->priority < processing->priority) {
+                    pq_insert(q, processing);
+                    write_s_gantt(file, s_gantt, tick, processing->process_id, &w);
+                    fprintf(file, "Time %d: Process #%d was preempted by Process #%d\n", tick, processing->process_id, pq_peekmin(q)->process_id);
+
+                    processing=pq_extract_min(q);
+                    fprintf(file, "Time %d: Process #%d started processing\n", tick, processing->process_id);
+                    processing->remaining_time--;
+                }
+                else processing->remaining_time--;
+            }
+        }
+        tick++;
+    }
+
+    fprintf(file, "\n");
+    printf("Simulation Completed! Finished time: %d\n\nGantt Chart:\n%s\n%s\n",tick-1,s_gantt[0],s_gantt[1]);
+    processsets_data[ps_n][4+ispreem][0] = 1;
+    processsets_data[ps_n][4+ispreem][1] = tick-1;
+    finish(file, ps, ps_n, 4+ispreem);
+
+    pq_destroy(q);
+    pq_destroy(wq);
+}
+
+void rr(int ps_n) {
+    FILE* file = create_file();
+    int tick=0;
+    ProcessSet* ps=processsets[ps_n];
+    int processn=ps->num;
+    Queue* q=create_queue();
+    Process* processing = NULL;
+    PriorityQueue* wq=pq_create(1);
+    char s_gantt[2][130] = {"0", "|"};
+    for (int i=1;i<129;i++) s_gantt[0][i] = s_gantt[1][i] = ' ';
+    s_gantt[0][129] = s_gantt[1][129] = '\0';
+    int w=1;
+    int latest = reset(ps_n);
+    int tq,tqcur=0;
+
+    int scanned = 0;
+    char input_buf[256];
+
+    while(!scanned) {
+        printf("\nRound Robin: Input Time Quantum (1~100)\n");
+        get_line(input_buf);
+        scanned = sscanf(input_buf, "%d", &tq);
+        if(tq>100 || tq<1 || scanned!=1) {
+            printf("Invalid input. ");
+            scanned=0;
+            continue;
+        }
+    }
+
+    fprintf(file,"ProcessSet #%d\nAlgorithm: Round Robin\nTime Quantum: %d\n\nGantt Chart:\n",ps_n+1,tq);
+
+    printf("\nProcessing...\n");
+    tick=1;
+    for(int i=0;i<processn;i++) {
+        if(0==ps->p[i]->arrival_time) {
+            enqueue(q,ps->p[i]);
+            if(processing == NULL) {
+                processing=ps->p[i];
+                fprintf(file, "Time 0: Process #%d started processing\n", processing->process_id);
+            }
+        }
+    }
+    if(processing != NULL) {
+        processing->remaining_time--;
+        tqcur++;
+    }
+    else fprintf(file, "Time 0: IDLE\n");
+
+    while(tick<=latest || q->l!=q->r || wq->current_size>0) { // process
+        while(wq->current_size>0 && pq_peekmin(wq)->io_finish_time <= tick) enqueue(q, pq_extract_min(wq)); // check waiting queue
+
+        for(int i=0;i<processn;i++) { // enqueue first arrived process
+            if(tick==ps->p[i]->arrival_time) enqueue(q,ps->p[i]);
+        }
+
+        if(processing == NULL) { // was not processing
+            if(q->l!=q->r) { // queue not empty -> start new process
+                processing=queue_front(q);
+                processing->remaining_time--;
+                tqcur=1;
+                write_s_gantt(file, s_gantt, tick, 0, &w);
+                fprintf(file, "Time %d: Process #%d started processing\n", tick, processing->process_id);
+            }
+        }
+
+        else { // was processing
+            if(processing->remaining_time < 1) { // process end
+                processing->finished_time = tick;
+                write_s_gantt(file, s_gantt, tick, processing->process_id, &w);
+                fprintf(file, "Time %d: Process #%d finished processing\n", tick, processing->process_id);
+                dequeue(q);
+
+                if(q->l!=q->r) { // queue not empty -> start new process
+                    processing=queue_front(q);
+                    processing->remaining_time--;
+                    tqcur=1;
+                    fprintf(file, "Time %d: Process #%d started processing\n", tick, processing->process_id);
+                }
+                else {
+                    processing=NULL;
+                    fprintf(file, "Time %d: Ready queue empty, IDLE\n", tick);
+                }
+            }
+
+            else { // still processing, I/O can be called
+                if(rand()%100 < processing->io_rate) { // I/O interrupt called
+                    processing->io_num++;
+                    processing->io_process_time += processing->io_time;
+                    processing->io_finish_time = tick+processing->io_time;
+                    pq_insert(wq,processing);
+                    write_s_gantt(file, s_gantt, tick, processing->process_id, &w);
+                    fprintf(file, "Time %d: Process #%d was interrupted by I/O while processing\n", tick, processing->process_id);
+                    dequeue(q);
+
+                    if(q->l!=q->r) { // queue not empty -> start new process
+                        processing=queue_front(q);
+                        processing->remaining_time--;
+                        tqcur=1;
+                        fprintf(file, "Time %d: Process #%d started processing\n", tick, processing->process_id);
+                    }
+                    else {
+                        processing=NULL;
+                        fprintf(file, "Time %d: Ready queue empty, IDLE\n", tick);
+                    }
+                }
+                else if (tqcur>=tq) { // time quantum ended
+                    fprintf(file, "Time %d: Process #%d's time quantum ended\n", tick, processing->process_id);
+                    write_s_gantt(file, s_gantt, tick, processing->process_id, &w);
+                    dequeue(q);
+                    enqueue(q, processing);
+
+                    if(q->l!=q->r) { // queue not empty -> start new process
+                        processing=queue_front(q);
+                        processing->remaining_time--;
+                        tqcur=1;
+                        fprintf(file, "Time %d: Process #%d started processing\n", tick, processing->process_id);
+                    }
+                    else {
+                        processing=NULL;
+                        fprintf(file, "Time %d: Ready queue empty, IDLE\n", tick);
+                    }
+                }
+                else {
+                    processing->remaining_time--;
+                    tqcur++;
+                }
+            }
+        }
+        tick++;
+    }
+
+    fprintf(file, "\n");
+    printf("Simulation Completed! Finished time: %d\n\nGantt Chart:\n%s\n%s\n",tick-1,s_gantt[0],s_gantt[1]);
+    processsets_data[ps_n][6][0] = 1;
+    processsets_data[ps_n][6][1] = tick-1;
+    finish(file, ps, ps_n, 6);
+
+    destroy_queue(q);
+    pq_destroy(wq);
+}
 
 
 int manage_process_set() { // 프로세스셋 관리모드 
@@ -733,10 +1001,10 @@ int manage_process_set() { // 프로세스셋 관리모드
 
     scanned = 0;
     while(!scanned) {
-        printf("ProcessSet %d selected:\nChoose action:\n1: ProcessSet info 2: Create new ProcessSet here 3: Back\n", selected);
+        printf("\nProcessSet %d selected:\nChoose action:\n1: ProcessSet info 2: Create new ProcessSet here 3: Evaulate Performance 0: Back\n", selected);
         get_line(input_buf);
         scanned = sscanf(input_buf, "%d", &action);
-        if(action>3 || action<1 || scanned!=1) {
+        if(action>3 || action<0 || scanned!=1) {
             printf("Invalid input.\n\n");
             scanned=0;
             continue;
@@ -748,6 +1016,21 @@ int manage_process_set() { // 프로세스셋 관리모드
     }
     else if(action == 2) {
         create_processset(selected); // 내부에서 처리 
+    }
+    else if (action == 3) {
+        printf("\nProcessSet #%d - Performance Summary\n", selected);
+        const char* algo[] = {"FCFS", "Non-Preemptive SJF", "Preemptive SJF", "Non-Preemptive Priority", "Preemptive Priority", "Round Robin"};
+
+        for(int i=0;i<6;i++) {
+            printf("%d: %s\n", i+1, algo[i]);
+            if (processsets_data[selected-1][i+1][0]) {
+                printf("Average Waiting Time: %.3f\n", processsets_datad[selected-1][i+1][0]);
+                printf("Average Turnaround Time: %.3f\n", processsets_datad[selected-1][i+1][1]);
+            }
+            else {
+                printf("Not executed\n");
+            }
+        }
     }
     return 1;
 }
@@ -781,10 +1064,10 @@ int run_algo() { // 알고리즘 실행기
 
     scanned = 0;
     while(!scanned) {
-        printf("ProcessSet %d selected:\nChoose algorithm:\n 1: FCFS 2: TODO\n", selected);
+        printf("\nProcessSet %d selected:\nChoose algorithm:\n1: FCFS 2: Non-Preemptive SJF 3: Preemptive SJF\n4: Non-Preemptive Priority 5: Preemptive Priority 6. Round Robin\n0: Back\n", selected);
         get_line(input_buf);
         scanned = sscanf(input_buf, "%d", &action);
-        if(action>6 || action<1 || scanned!=1) {
+        if(action>6 || action<0 || scanned!=1) {
             printf("Invalid input.\n\n");
             scanned=0;
             continue;
@@ -800,16 +1083,23 @@ int run_algo() { // 알고리즘 실행기
     else if(action == 3) {
         sjf(selected-1, 1);
     }
+    else if(action == 4) {
+        priority(selected-1, 0);
+    }
+    else if(action == 5) {
+        priority(selected-1, 1);
+    }
+    else if(action == 6) {
+        rr(selected-1);
+    }
     return 1;
 }
-
 
 int main() {
     srand(time(NULL));
     printf("** ************************************************ **\n");
     printf("** *********** CPU Scheduling Simulator *********** **\n");
     printf("**                                                  **\n");
-    printf("**          Made by 2024320042 Kiyong Kim           **\n");
     printf("** ************************************************ **\n\n");
     while(1) {
         int scanned = 0;
