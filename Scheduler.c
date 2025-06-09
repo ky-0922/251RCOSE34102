@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <direct.h>
 #include <string.h>
 #include <time.h>
 #define MAX_SIZE 50001
@@ -204,9 +203,9 @@ void create_processset(int ps_id) {
         for(int i=0;i<process_n;++i) {
             int rv[5];
             rv[0]=rand()%10;
-            rv[1]=rand()%15;
+            rv[1]=rand()%15+1;
             rv[2]=rand()%32;
-            rv[3]=rand()%3;
+            rv[3]=rand()%3+1;
             rv[4]=rand()%8;
             ps->p[i]=create_process(i+1,rv[0],rv[1],rv[2],rv[3],rv[4]);
         }
@@ -425,9 +424,7 @@ FILE* create_file() {
         perror("Failed to open file\n");
         return NULL;
     }
-    char cwd[1024];
-    _getcwd(cwd, sizeof(cwd));
-    printf("File is saved at: %s\\%s\n", cwd, filename);
+    printf("File is saved as: %s\n", filename);
     return fp;
 }
 
